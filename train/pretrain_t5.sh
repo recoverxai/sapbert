@@ -1,7 +1,7 @@
 CUDA_VISIBLE_DEVICES=$1 python3 train.py \
-	--model_dir "microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext" \
+	--model_dir "bigscience/T0_3B" \
 	--train_dir $PATH_TO_TRAIN_FILE \
-	--output_dir tmp/sapt5\
+	--output_dir ../sapt5\
 	--use_cuda \
 	--epoch 1 \
 	--train_batch_size 256 \
@@ -16,4 +16,4 @@ CUDA_VISIBLE_DEVICES=$1 python3 train.py \
 	--use_miner \
 	--type_of_triplets "all" \
 	--miner_margin 0.2 \
-	--agg_mode "cls"
+	--agg_mode "mean_all_tok"

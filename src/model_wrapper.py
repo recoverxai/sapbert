@@ -10,8 +10,8 @@ from sklearn.metrics.pairwise import cosine_similarity
 from .metric_learning import *
 
 from transformers import (
-    AutoTokenizer, 
-    AutoModel, 
+    AutoTokenizer,
+    AutoModel,
 )
 
 LOGGER = logging.getLogger()
@@ -25,6 +25,7 @@ class Model_Wrapper(object):
     def __init__(self):
         self.tokenizer = None
         self.encoder = None
+        self.model = None
 
     def get_dense_encoder(self):
         assert (self.encoder is not None)
@@ -36,28 +37,33 @@ class Model_Wrapper(object):
 
         return self.tokenizer
 
-    def save_model(self, path, context=False):
+    def save_model(self, path, context=False, encoder_decoder: bool = False):
         # save bert model, bert config
-        self.encoder.save_pretrained(path)
+        if encoder_decoder:
+            self.model.encoder = self.encoder
+            self.model.save_pretrained(path)
+        else:
+            self.encoder.save_pretrained(path)
 
         # save bert vocab
         self.tokenizer.save_pretrained(path)
-        
 
-    def load_model(self, path, max_length=25, use_cuda=True, lowercase=True):
-        self.load_bert(path, max_length, use_cuda)
-        
+
+    def load_model(self, path, max_length=25, use_cuda=True, lowercase=True, encoder_decoder = False):
+        self.load_encoder(path, max_length, use_cuda, encoder_decoder)
         return self
 
-    def load_bert(self, path, max_length, use_cuda, lowercase=True):
-        self.tokenizer = AutoTokenizer.from_pretrained(path, 
+    def load_encoder(self, path, max_length, use_cuda, lowercase=True, encoder_decoder: bool = False):
+        self.tokenizer = AutoTokenizer.from_pretrained(path,
                 use_fast=True, do_lower_case=lowercase)
         self.encoder = AutoModel.from_pretrained(path)
+        if encoder_decoder:
+            self.encoder = self.encoder.encoder
         if use_cuda:
             self.encoder = self.encoder.cuda()
 
         return self.encoder, self.tokenizer
-    
+
 
     def get_score_matrix(self, query_embeds, dict_embeds, cosine=False, normalise=False):
         """
@@ -82,7 +88,7 @@ class Model_Wrapper(object):
 
         if normalise:
             score_matrix = (score_matrix - score_matrix.min() ) / (score_matrix.max() - score_matrix.min())
-        
+
         return score_matrix
 
     def retrieve_candidate(self, score_matrix, topk):
@@ -101,7 +107,7 @@ class Model_Wrapper(object):
         topk_idxs : np.array
             2d numpy array of scores [# of query , # of dict]
         """
-        
+
         def indexing_2d(arr, cols):
             rows = np.repeat(np.arange(0,cols.shape[0])[:, np.newaxis],cols.shape[1],axis=1)
             return arr[rows, cols]
@@ -111,7 +117,7 @@ class Model_Wrapper(object):
 
         # get topk indexes with sorting
         topk_score_matrix = indexing_2d(score_matrix, topk_idxs)
-        topk_argidxs = np.argsort(-topk_score_matrix) 
+        topk_argidxs = np.argsort(-topk_score_matrix)
         topk_idxs = indexing_2d(topk_idxs, topk_argidxs)
 
         return topk_idxs
@@ -137,7 +143,7 @@ class Model_Wrapper(object):
         for i in tqdm(np.arange(0, score_matrix.shape[0], batch_size), disable=not show_progress):
             score_matrix_tmp = torch.tensor(score_matrix[i:i+batch_size]).cuda()
             matrix_sorted = torch.argsort(score_matrix_tmp, dim=1, descending=True)[:, :topk].cpu()
-            if res is None: 
+            if res is None:
                 res = matrix_sorted
             else:
                 res = torch.cat([res, matrix_sorted], axis=0)
@@ -159,7 +165,7 @@ class Model_Wrapper(object):
             A list of dense embeddings
         """
         self.encoder.eval() # prevent dropout
-        
+
         batch_size=batch_size
         dense_embeds = []
 
@@ -171,18 +177,18 @@ class Model_Wrapper(object):
                 iterations = tqdm(range(0, len(names), batch_size))
             else:
                 iterations = range(0, len(names), batch_size)
-                
+
             for start in iterations:
                 end = min(start + batch_size, len(names))
                 batch = names[start:end]
                 batch_tokenized_names = self.tokenizer.batch_encode_plus(
-                        batch, add_special_tokens=True, 
-                        truncation=True, max_length=25, 
+                        batch, add_special_tokens=True,
+                        truncation=True, max_length=25,
                         padding="max_length", return_tensors='pt')
                 batch_tokenized_names_cuda = {}
-                for k,v in batch_tokenized_names.items(): 
+                for k,v in batch_tokenized_names.items():
                     batch_tokenized_names_cuda[k] = v.cuda()
-                
+
                 last_hidden_state = self.encoder(**batch_tokenized_names_cuda)[0]
                 if agg_mode == "cls":
                     batch_dense_embeds = last_hidden_state[:,0,:] # [CLS]
@@ -196,5 +202,5 @@ class Model_Wrapper(object):
                 batch_dense_embeds = batch_dense_embeds.cpu().detach().numpy()
                 dense_embeds.append(batch_dense_embeds)
         dense_embeds = np.concatenate(dense_embeds, axis=0)
-        
+
         return dense_embeds
