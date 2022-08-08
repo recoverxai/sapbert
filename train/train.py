@@ -3,7 +3,7 @@ import numpy as np
 import argparse
 import torch
 import torch.optim as optim
-from torch.cuda.amp import autocast 
+from torch.cuda.amp import autocast
 from torch.cuda.amp import GradScaler
 from pytorch_metric_learning import samplers
 import logging
@@ -15,7 +15,7 @@ import random
 from tqdm import tqdm
 
 import sys
-sys.path.append("../") 
+sys.path.append("../")
 
 import wandb
 wandb.init(project="sapbert")
@@ -43,13 +43,13 @@ def parse_args():
     parser = argparse.ArgumentParser(description='sapbert train')
 
     # Required
-    parser.add_argument('--model_dir', 
+    parser.add_argument('--model_dir',
                         help='Directory for pretrained model')
     parser.add_argument('--train_dir', type=str, required=True,
                     help='training set directory')
     parser.add_argument('--output_dir', type=str, required=True,
                         help='Directory for output')
-    
+
     # Tokenizer settings
     parser.add_argument('--max_length', default=25, type=int)
 
@@ -69,22 +69,22 @@ def parse_args():
                         default=3, type=int)
     parser.add_argument('--save_checkpoint_all', action="store_true")
     parser.add_argument('--checkpoint_step', type=int, default=10000000)
-    parser.add_argument('--amp', action="store_true", 
+    parser.add_argument('--amp', action="store_true",
             help="automatic mixed precision training")
-    parser.add_argument('--parallel', action="store_true") 
-    #parser.add_argument('--cased', action="store_true") 
+    parser.add_argument('--parallel', action="store_true")
+    #parser.add_argument('--cased', action="store_true")
     parser.add_argument('--pairwise', action="store_true",
-            help="if loading pairwise formatted datasets") 
+            help="if loading pairwise formatted datasets")
     parser.add_argument('--random_seed',
                         help='epoch to train',
                         default=1996, type=int)
     parser.add_argument('--loss',
                         help="{ms_loss|cosine_loss|circle_loss|triplet_loss}}",
                         default="ms_loss")
-    parser.add_argument('--use_miner', action="store_true") 
-    parser.add_argument('--miner_margin', default=0.2, type=float) 
-    parser.add_argument('--type_of_triplets', default="all", type=str) 
-    parser.add_argument('--agg_mode', default="cls", type=str, help="{cls|mean|mean_all_tok}") 
+    parser.add_argument('--use_miner', action="store_true")
+    parser.add_argument('--miner_margin', default=0.2, type=float)
+    parser.add_argument('--type_of_triplets', default="all", type=str)
+    parser.add_argument('--agg_mode', default="cls", type=str, help="{cls|mean|mean_all_tok}")
 
     args = parser.parse_args()
     return args
@@ -107,11 +107,11 @@ def init_seed(seed=None):
     torch.cuda.manual_seed(seed)
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
-    
+
 def load_dictionary(dictionary_path):
     """
     load dictionary
-    
+
     Parameters
     ----------
     dictionary_path : str
@@ -120,13 +120,13 @@ def load_dictionary(dictionary_path):
     dictionary = DictionaryDataset(
             dictionary_path = dictionary_path
     )
-    
+
     return dictionary.data
-    
+
 def load_queries(data_dir, filter_composite, filter_duplicate):
     """
     load query data
-    
+
     Parameters
     ----------
     is_train : bool
@@ -141,13 +141,13 @@ def load_queries(data_dir, filter_composite, filter_duplicate):
         filter_composite=filter_composite,
         filter_duplicate=filter_duplicate
     )
-    
+
     return dataset.data
 
 def load_queries_pretraining(data_dir, filter_duplicate):
     """
     load query data
-    
+
     Parameters
     ----------
     is_train : bool
@@ -161,12 +161,12 @@ def load_queries_pretraining(data_dir, filter_duplicate):
         data_dir=data_dir,
         filter_duplicate=filter_duplicate
     )
-    
+
     return dataset.data
 
 def train(args, data_loader, model, scaler=None, model_wrapper=None, step_global=0):
     LOGGER.info("train!")
-    
+
     train_loss = 0
     train_steps = 0
     model.cuda()
@@ -182,12 +182,12 @@ def train(args, data_loader, model, scaler=None, model_wrapper=None, step_global
             batch_x_cuda2[k] = v.cuda()
 
         batch_y_cuda = batch_y.cuda()
-    
+
         if args.amp:
             with autocast():
-                loss = model(batch_x_cuda1, batch_x_cuda2, batch_y_cuda)  
+                loss = model(batch_x_cuda1, batch_x_cuda2, batch_y_cuda)
         else:
-            loss = model(batch_x_cuda1, batch_x_cuda2, batch_y_cuda)  
+            loss = model(batch_x_cuda1, batch_x_cuda2, batch_y_cuda)
         if args.amp:
             scaler.scale(loss).backward()
             scaler.step(model.optimizer)
@@ -212,32 +212,32 @@ def train(args, data_loader, model, scaler=None, model_wrapper=None, step_global
             model_wrapper.save_model(checkpoint_dir)
     train_loss /= (train_steps + 1e-9)
     return train_loss, step_global
-    
+
 def main(args):
     init_logging()
     #init_seed(args.seed)
     print(args)
 
     torch.manual_seed(args.random_seed)
-    
+
     # prepare for output
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
-        
+
 
     # load BERT tokenizer, dense_encoder
     model_wrapper = Model_Wrapper()
-    encoder, tokenizer = model_wrapper.load_bert(
+    encoder, tokenizer = model_wrapper.load_encoder(
         path=args.model_dir,
         max_length=args.max_length,
         use_cuda=args.use_cuda,
         #lowercase=not args.cased
     )
-    
+
     # load SAP model
     model = Sap_Metric_Learning(
             encoder = encoder,
-            learning_rate=args.learning_rate, 
+            learning_rate=args.learning_rate,
             weight_decay=args.weight_decay,
             use_cuda=args.use_cuda,
             pairwise=args.pairwise,
@@ -251,20 +251,20 @@ def main(args):
     if args.parallel:
         model.encoder = torch.nn.DataParallel(model.encoder)
         LOGGER.info("using nn.DataParallel")
-    
+
     def collate_fn_batch_encoding(batch):
         query1, query2, query_id = zip(*batch)
         query_encodings1 = tokenizer.batch_encode_plus(
-                list(query1), 
-                max_length=args.max_length, 
-                padding="max_length", 
+                list(query1),
+                max_length=args.max_length,
+                padding="max_length",
                 truncation=True,
                 add_special_tokens=True,
                 return_tensors="pt")
         query_encodings2 = tokenizer.batch_encode_plus(
-                list(query2), 
-                max_length=args.max_length, 
-                padding="max_length", 
+                list(query2),
+                max_length=args.max_length,
+                padding="max_length",
                 truncation=True,
                 add_special_tokens=True,
                 return_tensors="pt")
@@ -298,9 +298,9 @@ def main(args):
             #shuffle=True,
             sampler=samplers.MPerClassSampler(train_set.query_ids,\
                 2, length_before_new_iter=100000),
-            num_workers=16, 
+            num_workers=16,
             )
-    # mixed precision training 
+    # mixed precision training
     if args.amp:
         scaler = GradScaler()
     else:
@@ -316,25 +316,25 @@ def main(args):
         # train
         train_loss, step_global = train(args, data_loader=train_loader, model=model, scaler=scaler, model_wrapper=model_wrapper, step_global=step_global)
         LOGGER.info('loss/train_per_epoch={}/{}'.format(train_loss,epoch))
-        
+
         # save model every epoch
         if args.save_checkpoint_all:
             checkpoint_dir = os.path.join(args.output_dir, "checkpoint_{}".format(epoch))
             if not os.path.exists(checkpoint_dir):
                 os.makedirs(checkpoint_dir)
             model_wrapper.save_model(checkpoint_dir)
-        
+
         # save model last epoch
         if epoch == args.epoch:
             model_wrapper.save_model(args.output_dir)
-            
+
     end = time.time()
     training_time = end-start
     training_hour = int(training_time/60/60)
     training_minute = int(training_time/60 % 60)
     training_second = int(training_time % 60)
     LOGGER.info("Training Time!{} hours {} minutes {} seconds".format(training_hour, training_minute, training_second))
-    
+
 if __name__ == '__main__':
     args = parse_args()
     main(args)

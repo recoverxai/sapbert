@@ -1,5 +1,5 @@
 CUDA_VISIBLE_DEVICES=$1 python3 train.py \
-	--model_dir "bigscience/T0_3B" \
+	--model_dir "bigscience/t5-" \
 	--train_dir $PATH_TO_TRAIN_FILE \
 	--output_dir ../sapt5\
 	--use_cuda \
